@@ -1,57 +1,98 @@
 @startuml
 !pragma layout smetana
-skinparam dpi 150
+left to right direction
+skinparam dpi 180
 skinparam defaultFontName "Microsoft YaHei"
+skinparam backgroundColor #FFFFFF
 skinparam shadowing false
-skinparam roundcorner 8
+skinparam roundcorner 10
+skinparam nodesep 32
+skinparam ranksep 44
 skinparam classAttributeIconSize 0
-hide methods
-skinparam class {
-  BackgroundColor #FFFFFF
-  BorderColor #4B5563
-  ArrowColor #2563EB
-  FontColor #111827
-}
+skinparam ArrowColor #64748B
+skinparam classBorderColor #94A3B8
+skinparam classHeaderBackgroundColor #EAF2F8
+skinparam classFontSize 10
 
-package "用户与账本" {
-  class User {
-    - userId: UUID
-    - nickname: String
-    - accountStatus: String
-  }
-  class LedgerMember {
-    - memberId: UUID
-    - role: String
-    - permissionVersion: Integer
-  }
-  class Ledger {
-    - ledgerId: UUID
-    - name: String
-    - ownerId: UUID
-  }
-}
+title 图 1  UML 类图：核心业务对象
 
-package "收支记录" {
-  class ExpenseRecord {
-    - recordId: UUID
-    - amount: Decimal
-    - type: String
-    - category: String
-    - status: String
-    - requestId: String
-  }
+class User {
+  - userId: UUID
+  - account: String
+  - status: String
 }
-
-package "结算" {
-  class Settlement {
-    - settlementId: UUID
-    - status: String
-    - totalAmount: Decimal
-  }
+class Ledger {
+  - ledgerId: UUID
+  - name: String
+  - ownerId: UUID
+}
+class LedgerMember {
+  - memberId: UUID
+  - role: String
+  - permissions: Set<String>
+  - version: Integer
+}
+class ExpenseRecord {
+  - recordId: UUID
+  - amount: Decimal
+  - status: RecordStatus
+  - requestId: String
+  - submitterId: UUID
+}
+class RecordShare {
+  - shareId: UUID
+  - memberId: UUID
+  - amount: Decimal
+}
+class CorrectionRecord {
+  - correctionId: UUID
+  - amount: Decimal
+  - direction: String
+  - status: RecordStatus
+}
+class Budget {
+  - budgetId: UUID
+  - category: String
+  - limitAmount: Decimal
+}
+class Settlement {
+  - settlementId: UUID
+  - status: SettlementStatus
+  - totalAmount: Decimal
+}
+class SettlementSnapshot {
+  - snapshotId: UUID
+  - summary: String
+  - detail: String
+  - frozenAt: DateTime
+}
+class OperationLog {
+  - logId: UUID
+  - action: String
+  - result: String
+  - createdAt: DateTime
 }
 
 User "1" -- "*" LedgerMember : 加入
 Ledger "1" -- "*" LedgerMember : 包含
 Ledger "1" -- "*" ExpenseRecord : 记录
+ExpenseRecord "1" *-- "*" RecordShare : 承担明细
+RecordShare "*" -- "1" LedgerMember : 对应
+CorrectionRecord "*" --> "1" ExpenseRecord : 更正原记录
+Ledger "1" -- "*" Budget : 设置
 Ledger "1" -- "*" Settlement : 发起
+Settlement "1" -- "1" SettlementSnapshot : 冻结
+User "1" -- "*" OperationLog : 操作
+Ledger "1" -- "*" OperationLog : 关联
+
+note right of ExpenseRecord
+  状态：待审核 / 已审核 / 已驳回 / 已撤回 / 已作废
+end note
+note bottom of CorrectionRecord
+  金额为正数，方向为调增或调减。
+end note
+note right of Settlement
+  状态：待确认 / 已完成 / 已撤销；
+  快照“已冻结”是属性，不是结算状态。
+end note
 @enduml

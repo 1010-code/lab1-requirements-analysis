@@ -1,26 +1,71 @@
 @startuml
 !pragma layout smetana
-skinparam dpi 150
+left to right direction
+skinparam dpi 180
 skinparam defaultFontName "Microsoft YaHei"
+skinparam backgroundColor #FFFFFF
 skinparam shadowing false
+skinparam roundcorner 8
 skinparam componentStyle rectangle
-skinparam component {
-  BackgroundColor #F8FAFC
-  BorderColor #64748B
+skinparam ArrowColor #64748B
+skinparam packageBorderColor #94A3B8
+skinparam componentBackgroundColor #F8FAFC
+skinparam componentBorderColor #64748B
+
+title 图 2  UML 组件图：分层模块与接口
+
+package "表现层" {
+  [Web / 移动端界面] as WebUI
+  [平台管理台] as AdminUI
 }
 
-actor "用户" as User
-component "Web 前端" as Web
-component "账本服务" as LedgerService
-component "记录服务" as RecordService
-component "结算服务" as SettlementService
-database "业务数据库" as DB
+package "接口与应用服务层" {
+  [认证与权限服务] as Auth
+  [账本与成员服务] as LedgerSvc
+  [记录与审核服务] as RecordSvc
+  [查询、统计与预算服务] as QuerySvc
+  [结算服务] as SettleSvc
+  [日志与导出服务] as AuditSvc
+}
 
-User --> Web
-Web --> LedgerService
-Web --> RecordService
-Web --> SettlementService
-LedgerService --> DB
-RecordService --> DB
-SettlementService --> DB
+package "领域与基础设施" {
+  [领域规则] as Domain
+  [仓储接口] as Repo
+  [文件存储] as Files
+  [日志存储] as LogStore
+  database "关系型数据库" as DB
+}
+
+WebUI --> Auth
+WebUI --> LedgerSvc
+WebUI --> RecordSvc
+WebUI --> QuerySvc
+WebUI --> SettleSvc
+WebUI --> AuditSvc
+AdminUI --> AuditSvc
+
+Auth --> Domain
+LedgerSvc --> Domain
+RecordSvc --> Domain
+QuerySvc --> Domain
+SettleSvc --> Domain
+AuditSvc --> Domain
+
+Domain --> Repo
+Repo --> DB
+RecordSvc --> Files
+AuditSvc --> LogStore
+Auth --> Repo
+LedgerSvc --> Repo
+QuerySvc --> Repo
+SettleSvc --> Repo
+
+note right of RecordSvc
+  统一执行权限校验、状态检查、
+  金额与承担校验、幂等和日志写入。
+end note
+note bottom of SettleSvc
+  快照时点见 REQ-025；
+  快照生成后冻结，撤销不删除。
+end note
 @enduml
