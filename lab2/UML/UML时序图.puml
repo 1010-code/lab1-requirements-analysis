@@ -1,0 +1,16 @@
+@startuml
+skinparam dpi 150
+skinparam defaultFontName "Microsoft YaHei"
+skinparam shadowing false
+actor "普通成员" as Member
+participant "记录页面" as UI
+participant "记录服务" as RecordService
+participant "数据库" as DB
+
+Member -> UI : 提交收支记录
+UI -> RecordService : 保存记录
+RecordService -> DB : 写入待审核记录
+DB --> RecordService : 保存成功
+RecordService --> UI : 返回记录编号
+UI --> Member : 提示提交成功
+@enduml

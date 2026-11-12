@@ -1,0 +1,57 @@
+@startuml
+!pragma layout smetana
+skinparam dpi 150
+skinparam defaultFontName "Microsoft YaHei"
+skinparam shadowing false
+skinparam roundcorner 8
+skinparam classAttributeIconSize 0
+hide methods
+skinparam class {
+  BackgroundColor #FFFFFF
+  BorderColor #4B5563
+  ArrowColor #2563EB
+  FontColor #111827
+}
+
+package "用户与账本" {
+  class User {
+    - userId: UUID
+    - nickname: String
+    - accountStatus: String
+  }
+  class LedgerMember {
+    - memberId: UUID
+    - role: String
+    - permissionVersion: Integer
+  }
+  class Ledger {
+    - ledgerId: UUID
+    - name: String
+    - ownerId: UUID
+  }
+}
+
+package "收支记录" {
+  class ExpenseRecord {
+    - recordId: UUID
+    - amount: Decimal
+    - type: String
+    - category: String
+    - status: String
+    - requestId: String
+  }
+}
+
+package "结算" {
+  class Settlement {
+    - settlementId: UUID
+    - status: String
+    - totalAmount: Decimal
+  }
+}
+
+User "1" -- "*" LedgerMember : 加入
+Ledger "1" -- "*" LedgerMember : 包含
+Ledger "1" -- "*" ExpenseRecord : 记录
+Ledger "1" -- "*" Settlement : 发起
+@enduml

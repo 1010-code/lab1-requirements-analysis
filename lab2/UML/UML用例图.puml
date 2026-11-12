@@ -1,0 +1,28 @@
+@startuml
+!pragma layout smetana
+skinparam dpi 150
+skinparam defaultFontName "Microsoft YaHei"
+skinparam shadowing false
+left to right direction
+
+actor "账本管理员" as Admin
+actor "普通成员" as Member
+
+rectangle "多人共享记账系统" {
+  usecase "创建账本" as UC1
+  usecase "邀请成员" as UC2
+  usecase "新增收支" as UC3
+  usecase "提交审核" as UC4
+  usecase "审核记录" as UC5
+  usecase "查询统计" as UC6
+  usecase "发起结算" as UC7
+}
+
+Admin --> UC1
+Admin --> UC2
+Admin --> UC5
+Admin --> UC7
+Member --> UC3
+Member --> UC4
+Member --> UC6
+@enduml

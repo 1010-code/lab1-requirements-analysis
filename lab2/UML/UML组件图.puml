@@ -1,0 +1,26 @@
+@startuml
+!pragma layout smetana
+skinparam dpi 150
+skinparam defaultFontName "Microsoft YaHei"
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam component {
+  BackgroundColor #F8FAFC
+  BorderColor #64748B
+}
+
+actor "用户" as User
+component "Web 前端" as Web
+component "账本服务" as LedgerService
+component "记录服务" as RecordService
+component "结算服务" as SettlementService
+database "业务数据库" as DB
+
+User --> Web
+Web --> LedgerService
+Web --> RecordService
+Web --> SettlementService
+LedgerService --> DB
+RecordService --> DB
+SettlementService --> DB
+@enduml
