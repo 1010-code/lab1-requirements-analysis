@@ -1,0 +1,9 @@
+[project]
+name = "yitong-ledger"
+version = "1.0.0"
+description = "Reference implementation of the 一同记账 shared ledger"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.pycodestyle]
+max-line-length = 120

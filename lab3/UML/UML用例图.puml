@@ -1,0 +1,53 @@
+@startuml
+!pragma layout smetana
+skinparam dpi 160
+skinparam defaultFontName "Microsoft YaHei"
+skinparam shadowing false
+skinparam packageBorderColor #94A3B8
+skinparam usecaseBackgroundColor #F8FAFC
+skinparam usecaseBorderColor #64748B
+skinparam nodesep 36
+skinparam ranksep 45
+left to right direction
+
+title 图 3  UML 用例图：角色与系统功能
+
+actor "普通成员" as Member
+actor "账本管理员" as LedgerAdmin
+actor "平台管理员" as PlatformAdmin
+
+rectangle "多人共享记账系统" {
+  usecase "登录与查看账本" as UC_LOGIN
+  usecase "创建账本、邀请成员与设置权限" as UC_LEDGER
+  usecase "新增、修改和撤回收支" as UC_RECORD
+  usecase "审核、驳回与更正作废" as UC_AUDIT
+  usecase "查询、统计与预算" as UC_QUERY
+  usecase "发起结算" as UC_SETTLE
+  usecase "确认结算" as UC_CONFIRM
+  usecase "导出名单与日志查询" as UC_EXPORT
+  usecase "平台账号与违规处理" as UC_PLATFORM
+}
+
+Member --> UC_LOGIN
+Member --> UC_RECORD
+Member --> UC_QUERY
+Member --> UC_CONFIRM
+Member --> UC_EXPORT
+
+LedgerAdmin --> UC_LOGIN
+LedgerAdmin --> UC_LEDGER
+LedgerAdmin --> UC_RECORD
+LedgerAdmin --> UC_AUDIT
+LedgerAdmin --> UC_QUERY
+LedgerAdmin --> UC_SETTLE
+LedgerAdmin --> UC_EXPORT
+
+PlatformAdmin --> UC_LOGIN
+PlatformAdmin --> UC_EXPORT
+PlatformAdmin --> UC_PLATFORM
+
+note bottom of UC_LEDGER
+  仅账本管理员可修改权限、
+  作废已审核记录和发起结算。
+end note
+@enduml

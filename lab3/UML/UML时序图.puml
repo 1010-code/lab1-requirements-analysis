@@ -1,0 +1,53 @@
+@startuml
+skinparam dpi 160
+skinparam defaultFontName "Microsoft YaHei"
+skinparam shadowing false
+skinparam sequenceArrowColor #475569
+skinparam sequenceGroupBorderColor #94A3B8
+autonumber
+
+title 图 6  UML 时序图：结算、确认与快照
+
+actor "账本管理员" as Admin
+participant "结算页面" as UI
+participant "认证/权限服务" as Auth
+participant "结算服务" as Settle
+participant "记录仓储" as RecordRepo
+participant "结算仓储" as SettleRepo
+participant "审计服务" as Audit
+actor "所有成员" as Members
+
+Admin -> UI : 发起结算
+UI -> Auth : 校验账本管理员权限
+Auth --> UI : 校验通过
+UI -> Settle : startSettlement(ledgerId)
+Settle -> RecordRepo : 读取已审核且未作废记录及承担明细
+RecordRepo --> Settle : 记录、承担金额、付款人
+Settle -> SettleRepo : 创建待确认结算和成员确认项
+Settle -> Audit : 记录发起结算日志
+Settle --> UI : 返回待确认结算
+UI --> Members : 展示待确认成员
+
+loop 每位成员
+  Members -> UI : 提交本人确认
+  UI -> Auth : 校验当前成员身份
+  Auth --> UI : 校验通过
+  UI -> Settle : confirm(settlementId, memberId)
+  Settle -> SettleRepo : 保存确认记录
+  Settle -> Audit : 记录确认日志
+end
+
+alt 全体成员已确认
+  Settle -> SettleRepo : 读取结算汇总
+  Settle -> SettleRepo : 按 REQ-025 生成并冻结快照
+  Settle -> Audit : 记录完成日志
+  Settle --> UI : 结算完成
+else 仍有成员未确认
+  Settle --> UI : 返回未确认成员列表
+end
+
+group 并发冲突
+  Admin -> Settle : 作废或更正原记录
+  Settle --> Admin : 拒绝并提示刷新；已生成快照不得改写
+end
+@enduml

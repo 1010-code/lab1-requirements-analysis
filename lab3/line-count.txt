@@ -1,0 +1,20 @@
+production_files=15
+production_total_lines=3922
+production_nonblank_lines=3569
+test_lines=249
+--- production files ---
+__init__.py=3
+app.py=34
+auth_service.py=232
+cli.py=381
+database.py=279
+demo.py=92
+errors.py=41
+ledger_service.py=363
+main.py=6
+models.py=232
+record_service.py=763
+reporting_service.py=169
+repositories.py=835
+settlement_service.py=279
+utils.py=213

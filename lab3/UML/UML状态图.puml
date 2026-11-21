@@ -1,0 +1,34 @@
+@startuml
+skinparam dpi 160
+skinparam defaultFontName "Microsoft YaHei"
+skinparam shadowing false
+skinparam stateBackgroundColor #F8FAFC
+skinparam stateBorderColor #64748B
+skinparam ArrowColor #475569
+
+title 图 5  UML 状态图：收支记录生命周期
+
+[*] --> 待审核 : 新增并提交
+待审核 --> 已审核 : 审核通过
+待审核 --> 已驳回 : 审核驳回
+待审核 --> 已撤回 : 提交人撤回
+已驳回 --> 待审核 : 修改后重提
+已撤回 --> 待审核 : 修改后重提
+已审核 --> 已作废 : 管理员二次确认
+已作废 --> [*]
+
+note right of 已审核
+  禁止：已审核直接回到待审核
+  更正错误：新增差额更正记录
+end note
+note right of 已作废
+  记录保留，不物理删除
+  统计和结算中剔除
+end note
+
+state "待审核" as 待审核
+state "已审核" as 已审核
+state "已驳回" as 已驳回
+state "已撤回" as 已撤回
+state "已作废" as 已作废
+@enduml
