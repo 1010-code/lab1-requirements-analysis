@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import secrets
+from datetime import timedelta
+from typing import Any
+
 from .database import Database
 from .errors import (
     AuthenticationError,
@@ -15,11 +20,28 @@ from .utils import (
     hash_password,
     json_dumps,
     new_id,
+    parse_datetime,
+    utc_now,
     utc_now_iso,
     validate_account,
     validate_password,
     verify_password,
 )
+
+
+def _public_user(user: User) -> dict[str, str]:
+    """Return only fields that are safe to show in command output."""
+    return {
+        "user_id": user.user_id,
+        "account": user.account,
+        "display_name": user.display_name,
+        "status": user.status,
+    }
+
+
+def _token_digest(token: str) -> str:
+    """Hash a bearer token before it is stored in SQLite."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 class AuditService:
@@ -134,6 +156,65 @@ class AuthService:
         if user.status != UserStatus.ACTIVE.value:
             raise AuthenticationError("账号状态异常，不能登录")
         return user
+
+    def create_session(
+        self, account: str, password: str, ttl_hours: int = 12
+    ) -> dict[str, Any]:
+        """Authenticate a user and issue a revocable bearer token."""
+        if ttl_hours <= 0:
+            raise ValidationError("登录有效期必须大于 0")
+        user = self.login(account, password)
+        token = secrets.token_urlsafe(32)
+        created_at = utc_now_iso()
+        expires_at = (utc_now() + timedelta(hours=ttl_hours)).isoformat()
+        with self.db.transaction():
+            self.db.execute(
+                "INSERT INTO auth_sessions(token_hash, user_id, created_at, expires_at) "
+                "VALUES (?, ?, ?, ?)",
+                (_token_digest(token), user.user_id, created_at, expires_at),
+            )
+        return {
+            "token": token,
+            "token_type": "Bearer",
+            "expires_at": expires_at,
+            "user": _public_user(user),
+        }
+
+    def authenticate_session(self, token: str) -> User:
+        """Resolve a token to an active user without exposing its hash."""
+        if not str(token).strip():
+            raise AuthenticationError("缺少登录令牌")
+        row = self.db.fetchone(
+            "SELECT user_id, expires_at, revoked_at FROM auth_sessions "
+            "WHERE token_hash = ?",
+            (_token_digest(str(token).strip()),),
+        )
+        if row is None or row["revoked_at"] is not None:
+            raise AuthenticationError("登录状态无效或已经退出")
+        try:
+            expired = parse_datetime(row["expires_at"]) <= utc_now()
+        except ValueError as exc:
+            raise AuthenticationError("登录状态异常") from exc
+        if expired:
+            self.db.execute(
+                "UPDATE auth_sessions SET revoked_at = ? "
+                "WHERE token_hash = ? AND revoked_at IS NULL",
+                (utc_now_iso(), _token_digest(str(token).strip())),
+            )
+            raise AuthenticationError("登录状态已过期，请重新登录")
+        return self.require_active(row["user_id"])
+
+    def revoke_session(self, token: str) -> None:
+        """Log out a token immediately."""
+        if not str(token).strip():
+            raise AuthenticationError("缺少登录令牌")
+        result = self.db.execute(
+            "UPDATE auth_sessions SET revoked_at = ? "
+            "WHERE token_hash = ? AND revoked_at IS NULL",
+            (utc_now_iso(), _token_digest(str(token).strip())),
+        )
+        if result.rowcount != 1:
+            raise AuthenticationError("登录状态无效或已经退出")
 
     def require_active(self, user_id: str) -> User:
         """Return an active user or raise a domain error."""

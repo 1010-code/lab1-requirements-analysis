@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
 from yitong.app import Application
+from yitong.cli import _jsonable, main
 from yitong.errors import (
     AuthenticationError,
     AuthorizationError,
@@ -243,6 +247,286 @@ class LedgerServiceTest(unittest.TestCase):
         self.assertEqual(settlement.status, "PENDING")
         with self.assertRaises(ConflictError):
             self.app.settlements.start(self.owner.user_id, self.ledger.ledger_id)
+
+    def test_modify_amount_requires_new_shares(self) -> None:
+        record = self._record(request="modify-amount")
+        with self.assertRaises(ValidationError):
+            self.app.records.modify_record(
+                self.owner.user_id,
+                record.record_id,
+                {"amount": "200.00"},
+            )
+        updated = self.app.records.modify_record(
+            self.owner.user_id,
+            record.record_id,
+            {"amount": "200.00"},
+            shares={
+                self.owner_membership.member_id: 10000,
+                self.member_membership.member_id: 10000,
+            },
+        )
+        self.assertEqual(updated.amount_cents, 20000)
+        self.assertEqual(sum(item.amount_cents for item in updated.shares), 20000)
+
+    def test_duplicate_correction_request_returns_first_result(self) -> None:
+        record = self._record(request="correction-original")
+        self.app.records.approve_record(self.member.user_id, record.record_id)
+        first = self.app.records.create_correction(
+            self.owner.user_id,
+            record.record_id,
+            "20.00",
+            "INCREASE",
+            "correction-repeat",
+        )
+        self.app.records.approve_correction(self.member.user_id, first.correction_id)
+        self.app.settlements.start(self.owner.user_id, self.ledger.ledger_id)
+        second = self.app.records.create_correction(
+            self.owner.user_id,
+            record.record_id,
+            "20.00",
+            "INCREASE",
+            "correction-repeat",
+        )
+        self.assertEqual(first.correction_id, second.correction_id)
+        count = self.app.db.fetchone("SELECT COUNT(*) AS n FROM correction_records")
+        self.assertEqual(int(count["n"]), 1)
+
+    def test_pending_settlement_freezes_record_and_member_changes(self) -> None:
+        approved = self._record(request="freeze-approved")
+        self.app.records.approve_record(self.member.user_id, approved.record_id)
+        pending = self._record(
+            request="freeze-pending",
+            occurred="2026-11-20T12:10:00+08:00",
+        )
+        settlement = self.app.settlements.start(
+            self.owner.user_id, self.ledger.ledger_id
+        )
+        self.assertEqual(settlement.status, "PENDING")
+        with self.assertRaises(ConflictError):
+            self.app.records.add_record(
+                self.owner.user_id,
+                self.ledger.ledger_id,
+                "EXPENSE",
+                "10.00",
+                "餐饮",
+                "2026-11-20T13:00:00+08:00",
+                "",
+                self.owner_membership.member_id,
+                {self.owner_membership.member_id: 1000},
+                "freeze-add",
+            )
+        with self.assertRaises(ConflictError):
+            self.app.records.modify_record(
+                self.owner.user_id,
+                pending.record_id,
+                {"note": "不能修改"},
+            )
+        with self.assertRaises(ConflictError):
+            self.app.records.withdraw_record(self.owner.user_id, pending.record_id)
+        with self.assertRaises(ConflictError):
+            self.app.records.void_record(self.owner.user_id, approved.record_id)
+        with self.assertRaises(ConflictError):
+            self.app.ledger.invite(
+                self.owner.user_id,
+                self.ledger.ledger_id,
+                self.outsider.account,
+            )
+
+    def test_negative_and_zero_shares_are_rejected(self) -> None:
+        with self.assertRaises(ValidationError):
+            self.app.records.add_record(
+                self.owner.user_id,
+                self.ledger.ledger_id,
+                "EXPENSE",
+                "100.00",
+                "餐饮",
+                "2026-11-20T13:00:00+08:00",
+                "",
+                self.owner_membership.member_id,
+                {
+                    self.owner_membership.member_id: 12000,
+                    self.member_membership.member_id: -2000,
+                },
+                "negative-share",
+            )
+        with self.assertRaises(ValidationError):
+            self.app.records.add_record(
+                self.owner.user_id,
+                self.ledger.ledger_id,
+                "EXPENSE",
+                "100.00",
+                "餐饮",
+                "2026-11-20T13:10:00+08:00",
+                "",
+                self.owner_membership.member_id,
+                {
+                    self.owner_membership.member_id: 10000,
+                    self.member_membership.member_id: 0,
+                },
+                "zero-share",
+            )
+
+    def test_auditor_without_record_scope_is_rejected(self) -> None:
+        record = self.app.records.add_record(
+            self.owner.user_id,
+            self.ledger.ledger_id,
+            "EXPENSE",
+            "100.00",
+            "餐饮",
+            "2026-11-20T14:00:00+08:00",
+            "仅管理员承担",
+            self.owner_membership.member_id,
+            {self.owner_membership.member_id: 10000},
+            "audit-scope",
+        )
+        with self.assertRaises(AuthorizationError):
+            self.app.records.approve_record(self.member.user_id, record.record_id)
+
+    def test_left_member_can_be_reinvited_and_rejoin(self) -> None:
+        self.app.ledger.exit_ledger(self.member.user_id, self.ledger.ledger_id)
+        invite = self.app.ledger.invite(
+            self.owner.user_id,
+            self.ledger.ledger_id,
+            self.member.account,
+        )
+        rejoined = self.app.ledger.accept_invitation(
+            self.member.user_id, invite.invitation_id
+        )
+        self.assertEqual(rejoined.member_id, self.member_membership.member_id)
+        self.assertEqual(rejoined.status, "ACTIVE")
+
+    def test_income_correction_increase_and_decrease(self) -> None:
+        income = self.app.records.add_record(
+            self.owner.user_id,
+            self.ledger.ledger_id,
+            "INCOME",
+            "100.00",
+            "工资",
+            "2026-11-20T15:00:00+08:00",
+            "收入测试",
+            self.owner_membership.member_id,
+            {
+                self.owner_membership.member_id: 5000,
+                self.member_membership.member_id: 5000,
+            },
+            "income-original",
+        )
+        self.app.records.approve_record(self.member.user_id, income.record_id)
+        increase = self.app.records.create_correction(
+            self.owner.user_id,
+            income.record_id,
+            "20.00",
+            "INCREASE",
+            "income-increase",
+        )
+        self.app.records.approve_correction(self.member.user_id, increase.correction_id)
+        stats = self.app.records.statistics(self.owner.user_id, self.ledger.ledger_id)
+        self.assertEqual(stats["income_cents"], 12000)
+        decrease = self.app.records.create_correction(
+            self.owner.user_id,
+            income.record_id,
+            "20.00",
+            "DECREASE",
+            "income-decrease",
+        )
+        self.app.records.approve_correction(self.member.user_id, decrease.correction_id)
+        stats = self.app.records.statistics(self.owner.user_id, self.ledger.ledger_id)
+        self.assertEqual(stats["income_cents"], 10000)
+
+    def test_session_token_authentication_and_logout(self) -> None:
+        session = self.app.auth.create_session("owner", "Passw0rd!")
+        self.assertEqual(
+            set(session["user"]),
+            {"user_id", "account", "display_name", "status"},
+        )
+        resolved = self.app.auth.authenticate_session(session["token"])
+        self.assertEqual(resolved.user_id, self.owner.user_id)
+        self.app.auth.revoke_session(session["token"])
+        with self.assertRaises(AuthenticationError):
+            self.app.auth.authenticate_session(session["token"])
+        self.assertNotIn("password_hash", json.dumps(_jsonable(self.owner)))
+
+    def test_cli_login_output_and_token_workflow(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database = Path(temp_dir) / "cli.db"
+            register_output = io.StringIO()
+            with contextlib.redirect_stdout(register_output):
+                self.assertEqual(
+                    main(
+                        [
+                            "--db",
+                            str(database),
+                            "register",
+                            "--account",
+                            "cli_user",
+                            "--name",
+                            "命令行用户",
+                            "--password",
+                            "Passw0rd!",
+                        ]
+                    ),
+                    0,
+                )
+            login_output = io.StringIO()
+            with contextlib.redirect_stdout(login_output):
+                self.assertEqual(
+                    main(
+                        [
+                            "--db",
+                            str(database),
+                            "login",
+                            "--account",
+                            "cli_user",
+                            "--password",
+                            "Passw0rd!",
+                        ]
+                    ),
+                    0,
+                )
+            register_payload = json.loads(register_output.getvalue())
+            self.assertEqual(
+                set(register_payload),
+                {"user_id", "account", "display_name", "status"},
+            )
+            self.assertNotIn("password_hash", register_output.getvalue())
+            self.assertNotIn("password_salt", register_output.getvalue())
+            self.assertNotIn("password_hash", login_output.getvalue())
+            self.assertNotIn("password_salt", login_output.getvalue())
+            login_payload = json.loads(login_output.getvalue())
+            token = login_payload["token"]
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(
+                    main(
+                        [
+                            "--db",
+                            str(database),
+                            "--token",
+                            token,
+                            "list-ledgers",
+                        ]
+                    ),
+                    0,
+                )
+                self.assertEqual(
+                    main(["--db", str(database), "--token", token, "logout"]),
+                    0,
+                )
+            with (
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                self.assertEqual(
+                    main(
+                        [
+                            "--db",
+                            str(database),
+                            "--token",
+                            token,
+                            "list-ledgers",
+                        ]
+                    ),
+                    1,
+                )
 
 
 if __name__ == "__main__":

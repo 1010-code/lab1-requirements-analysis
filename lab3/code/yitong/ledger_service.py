@@ -51,6 +51,21 @@ class LedgerService:
             raise AuthorizationError("只有账本管理员可以执行此操作")
         return member
 
+    def has_pending_settlement(self, ledger_id: str) -> bool:
+        """Return whether the ledger currently has a pending settlement."""
+        return (
+            self.db.fetchone(
+                "SELECT 1 FROM settlements WHERE ledger_id = ? AND status = 'PENDING'",
+                (ledger_id,),
+            )
+            is not None
+        )
+
+    def ensure_no_pending_settlement(self, ledger_id: str, operation: str) -> None:
+        """Freeze membership and record writes while a settlement is pending."""
+        if self.has_pending_settlement(ledger_id):
+            raise ConflictError(f"结算待确认期间不能{operation}")
+
     def create_ledger(self, owner_id: str, name: str) -> Ledger:
         """Create a ledger and make its owner the first administrator."""
         self.auth.require_active(owner_id)
@@ -110,10 +125,12 @@ class LedgerService:
     def invite(self, actor_id: str, ledger_id: str, invitee_account: str) -> Invitation:
         """Invite a user; membership starts only after acceptance."""
         self._require_admin(actor_id, ledger_id)
+        self.ensure_no_pending_settlement(ledger_id, "邀请成员")
         invitee = self.users.by_account(invitee_account.strip().lower())
         if invitee is None:
             raise NotFoundError("被邀请用户不存在")
-        if self.members.by_user(ledger_id, invitee.user_id):
+        existing = self.members.by_user(ledger_id, invitee.user_id)
+        if existing and existing.status == "ACTIVE":
             raise ConflictError("该用户已经是账本成员")
         if self.invitations.pending_between(ledger_id, invitee.user_id):
             raise ConflictError("该用户已有待接受邀请")
@@ -149,13 +166,17 @@ class LedgerService:
             raise AuthorizationError("该邀请不属于当前用户")
         if invitation.status != InvitationStatus.PENDING.value:
             raise ConflictError("邀请已处理或已失效")
+        self.ensure_no_pending_settlement(invitation.ledger_id, "加入成员")
         existing = self.members.by_user(invitation.ledger_id, user_id)
         if existing and existing.status == "ACTIVE":
             raise ConflictError("已经是该账本成员")
         with self.db.transaction():
             if existing:
                 self.db.execute(
-                    "UPDATE ledger_members SET status = 'ACTIVE', left_at = NULL, role = 'MEMBER', permissions_json = ?, permission_version = permission_version + 1 WHERE member_id = ?",
+                    "UPDATE ledger_members SET status = 'ACTIVE', left_at = NULL, "
+                    "role = 'MEMBER', permissions_json = ?, "
+                    "permission_version = permission_version + 1 "
+                    "WHERE member_id = ?",
                     (
                         json.dumps(sorted(DEFAULT_MEMBER_PERMISSIONS)),
                         existing.member_id,
@@ -224,6 +245,7 @@ class LedgerService:
         self._require_admin(actor_id, ledger_id)
         if permission not in {item.value for item in Permission}:
             raise ValidationError("权限名称不合法")
+        self.ensure_no_pending_settlement(ledger_id, "修改成员权限")
         target = self.members.get(target_member_id)
         if target is None or target.ledger_id != ledger_id or target.status != "ACTIVE":
             raise NotFoundError("目标成员不存在")
@@ -255,6 +277,7 @@ class LedgerService:
     ) -> None:
         """Transfer ledger ownership to an active member."""
         actor = self._require_admin(actor_id, ledger_id)
+        self.ensure_no_pending_settlement(ledger_id, "转让管理员")
         target = self.members.get(target_member_id)
         if target is None or target.ledger_id != ledger_id or target.status != "ACTIVE":
             raise NotFoundError("目标成员不存在")
@@ -282,7 +305,10 @@ class LedgerService:
             (ledger_id, member.user_id),
         )
         pending_confirmations = self.db.fetchone(
-            "SELECT COUNT(*) AS n FROM settlement_confirmations c JOIN settlements s ON s.settlement_id = c.settlement_id WHERE s.ledger_id = ? AND s.status = 'PENDING' AND c.member_id = ? AND c.status = 'PENDING'",
+            "SELECT COUNT(*) AS n FROM settlement_confirmations c "
+            "JOIN settlements s ON s.settlement_id = c.settlement_id "
+            "WHERE s.ledger_id = ? AND s.status = 'PENDING' "
+            "AND c.member_id = ? AND c.status = 'PENDING'",
             (ledger_id, member.member_id),
         )
         return (
@@ -293,6 +319,7 @@ class LedgerService:
     def exit_ledger(self, actor_id: str, ledger_id: str) -> None:
         """Exit when no pending record or pending settlement confirmation remains."""
         member = self._require_active_member(actor_id, ledger_id)
+        self.ensure_no_pending_settlement(ledger_id, "退出账本")
         if (
             member.role == LedgerRole.LEDGER_ADMIN.value
             and self.members.count_active_admins(ledger_id) <= 1
@@ -318,6 +345,7 @@ class LedgerService:
     ) -> None:
         """Remove a member after checking pending work and administrator count."""
         self._require_admin(actor_id, ledger_id)
+        self.ensure_no_pending_settlement(ledger_id, "移除成员")
         target = self.members.get(target_member_id)
         if target is None or target.ledger_id != ledger_id or target.status != "ACTIVE":
             raise NotFoundError("目标成员不存在")

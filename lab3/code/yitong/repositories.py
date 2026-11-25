@@ -159,7 +159,9 @@ class UserRepository:
 
     def create(self, user: User) -> None:
         self.db.execute(
-            "INSERT INTO users(user_id, account, display_name, password_hash, password_salt, status, created_at, phone) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO users(user_id, account, display_name, password_hash, "
+            "password_salt, status, created_at, phone) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 user.user_id,
                 user.account,
@@ -220,7 +222,10 @@ class LedgerRepository:
 
     def list_for_user(self, user_id: str) -> list[Ledger]:
         rows = self.db.fetchall(
-            "SELECT l.* FROM ledgers l JOIN ledger_members m ON m.ledger_id = l.ledger_id WHERE m.user_id = ? AND m.status = 'ACTIVE' ORDER BY l.created_at",
+            "SELECT l.* FROM ledgers l "
+            "JOIN ledger_members m ON m.ledger_id = l.ledger_id "
+            "WHERE m.user_id = ? AND m.status = 'ACTIVE' "
+            "ORDER BY l.created_at",
             (user_id,),
         )
         return [item for row in rows if (item := _ledger(row)) is not None]
@@ -232,7 +237,9 @@ class MemberRepository:
 
     def create(self, member: LedgerMember) -> None:
         self.db.execute(
-            "INSERT INTO ledger_members(member_id, ledger_id, user_id, role, permissions_json, status, permission_version, joined_at, left_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO ledger_members(member_id, ledger_id, user_id, role, "
+            "permissions_json, status, permission_version, joined_at, left_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 member.member_id,
                 member.ledger_id,
@@ -270,7 +277,9 @@ class MemberRepository:
 
     def count_active_admins(self, ledger_id: str) -> int:
         row = self.db.fetchone(
-            "SELECT COUNT(*) AS total FROM ledger_members WHERE ledger_id = ? AND role = 'LEDGER_ADMIN' AND status = 'ACTIVE'",
+            "SELECT COUNT(*) AS total FROM ledger_members "
+            "WHERE ledger_id = ? AND role = 'LEDGER_ADMIN' "
+            "AND status = 'ACTIVE'",
             (ledger_id,),
         )
         return int(row["total"]) if row else 0
@@ -283,13 +292,17 @@ class MemberRepository:
 
     def update_permissions(self, member_id: str, permissions: set[str]) -> None:
         self.db.execute(
-            "UPDATE ledger_members SET permissions_json = ?, permission_version = permission_version + 1 WHERE member_id = ?",
+            "UPDATE ledger_members SET permissions_json = ?, "
+            "permission_version = permission_version + 1 "
+            "WHERE member_id = ?",
             (json.dumps(sorted(permissions), ensure_ascii=False), member_id),
         )
 
     def deactivate(self, member_id: str, left_at: str) -> None:
         self.db.execute(
-            "UPDATE ledger_members SET status = 'LEFT', left_at = ?, permission_version = permission_version + 1 WHERE member_id = ?",
+            "UPDATE ledger_members SET status = 'LEFT', left_at = ?, "
+            "permission_version = permission_version + 1 "
+            "WHERE member_id = ?",
             (left_at, member_id),
         )
 
@@ -300,7 +313,9 @@ class InvitationRepository:
 
     def create(self, invitation: Invitation) -> None:
         self.db.execute(
-            "INSERT INTO invitations(invitation_id, ledger_id, inviter_id, invitee_id, status, created_at, responded_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO invitations(invitation_id, ledger_id, inviter_id, "
+            "invitee_id, status, created_at, responded_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 invitation.invitation_id,
                 invitation.ledger_id,
@@ -347,7 +362,10 @@ class RecordRepository:
 
     def create(self, record: ExpenseRecord) -> None:
         self.db.execute(
-            "INSERT INTO expense_records(record_id, ledger_id, amount_cents, record_type, category, occurred_at, note, payer_id, submitter_id, auditor_id, status, request_id, created_at, updated_at, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO expense_records(record_id, ledger_id, amount_cents, "
+            "record_type, category, occurred_at, note, payer_id, submitter_id, "
+            "auditor_id, status, request_id, created_at, updated_at, version) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 record.record_id,
                 record.ledger_id,
@@ -399,7 +417,9 @@ class RecordRepository:
         from .utils import new_id
 
         self.db.execute(
-            "INSERT INTO attachments(attachment_id, record_id, file_name, file_type, file_size, content_hash) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO attachments(attachment_id, record_id, file_name, "
+            "file_type, file_size, content_hash) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
             (
                 new_id("att"),
                 record_id,
@@ -538,7 +558,10 @@ class RecordRepository:
     ) -> ExpenseRecord | None:
         return _record(
             self.db.fetchone(
-                "SELECT * FROM expense_records WHERE ledger_id = ? AND submitter_id = ? AND amount_cents = ? AND record_type = ? AND category = ? AND occurred_at = ? AND status != 'VOIDED' ORDER BY created_at LIMIT 1",
+                "SELECT * FROM expense_records "
+                "WHERE ledger_id = ? AND submitter_id = ? AND amount_cents = ? "
+                "AND record_type = ? AND category = ? AND occurred_at = ? "
+                "AND status != 'VOIDED' ORDER BY created_at LIMIT 1",
                 (
                     ledger_id,
                     submitter_id,
@@ -552,7 +575,10 @@ class RecordRepository:
 
     def create_correction(self, item: CorrectionRecord) -> None:
         self.db.execute(
-            "INSERT INTO correction_records(correction_id, ledger_id, original_record_id, amount_cents, direction, status, submitter_id, auditor_id, request_id, note, occurred_at, created_at, updated_at, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO correction_records(correction_id, ledger_id, "
+            "original_record_id, amount_cents, direction, status, submitter_id, "
+            "auditor_id, request_id, note, occurred_at, created_at, updated_at, version) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 item.correction_id,
                 item.ledger_id,
@@ -595,7 +621,10 @@ class RecordRepository:
     ) -> int:
         from .utils import utc_now_iso
 
-        sql = "UPDATE correction_records SET status = ?, auditor_id = ?, version = version + 1, updated_at = ? WHERE correction_id = ?"
+        sql = (
+            "UPDATE correction_records SET status = ?, auditor_id = ?, "
+            "version = version + 1, updated_at = ? WHERE correction_id = ?"
+        )
         params: list[Any] = [status, auditor_id, utc_now_iso(), correction_id]
         if expected_version is not None:
             sql += " AND version = ?"
@@ -609,7 +638,10 @@ class BudgetRepository:
 
     def upsert(self, budget: Budget) -> None:
         self.db.execute(
-            "INSERT INTO budgets(budget_id, ledger_id, category, cycle_type, limit_cents, created_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(ledger_id, category, cycle_type) DO UPDATE SET limit_cents = excluded.limit_cents, created_at = excluded.created_at",
+            "INSERT INTO budgets(budget_id, ledger_id, category, cycle_type, "
+            "limit_cents, created_at) VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(ledger_id, category, cycle_type) DO UPDATE SET "
+            "limit_cents = excluded.limit_cents, created_at = excluded.created_at",
             (
                 budget.budget_id,
                 budget.ledger_id,
@@ -634,7 +666,9 @@ class SettlementRepository:
 
     def create(self, settlement: Settlement) -> None:
         self.db.execute(
-            "INSERT INTO settlements(settlement_id, ledger_id, status, created_by, created_at, total_cents, snapshot_at, revoked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO settlements(settlement_id, ledger_id, status, created_by, "
+            "created_at, total_cents, snapshot_at, revoked_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 settlement.settlement_id,
                 settlement.ledger_id,
@@ -664,7 +698,9 @@ class SettlementRepository:
 
     def add_confirmation(self, item: SettlementConfirmation) -> None:
         self.db.execute(
-            "INSERT INTO settlement_confirmations(confirmation_id, settlement_id, member_id, status, created_at, confirmed_at) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO settlement_confirmations(confirmation_id, settlement_id, "
+            "member_id, status, created_at, confirmed_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
             (
                 item.confirmation_id,
                 item.settlement_id,
@@ -694,7 +730,9 @@ class SettlementRepository:
 
     def confirm(self, settlement_id: str, member_id: str, at: str) -> int:
         return self.db.execute(
-            "UPDATE settlement_confirmations SET status = 'CONFIRMED', confirmed_at = ? WHERE settlement_id = ? AND member_id = ? AND status = 'PENDING'",
+            "UPDATE settlement_confirmations SET status = 'CONFIRMED', "
+            "confirmed_at = ? WHERE settlement_id = ? AND member_id = ? "
+            "AND status = 'PENDING'",
             (at, settlement_id, member_id),
         ).rowcount
 
@@ -712,7 +750,8 @@ class SettlementRepository:
 
     def create_snapshot(self, snapshot: SettlementSnapshot) -> None:
         self.db.execute(
-            "INSERT INTO settlement_snapshots(snapshot_id, settlement_id, summary_json, detail_json, frozen_at) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO settlement_snapshots(snapshot_id, settlement_id, "
+            "summary_json, detail_json, frozen_at) VALUES (?, ?, ?, ?, ?)",
             (
                 snapshot.snapshot_id,
                 snapshot.settlement_id,
@@ -755,18 +794,22 @@ class RequestKeyRepository:
             (actor_id, request_id),
         )
 
-    def upsert(
+    def claim(
         self,
         actor_id: str,
         request_id: str,
         action: str,
         result_ref: str,
         created_at: str,
-    ) -> None:
-        self.db.execute(
-            "INSERT INTO request_keys(request_id, actor_id, action, result_ref, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(actor_id, request_id) DO UPDATE SET action = excluded.action, result_ref = excluded.result_ref, created_at = excluded.created_at",
+    ) -> bool:
+        """Reserve a request key exactly once, including under concurrent submits."""
+        result = self.db.execute(
+            "INSERT INTO request_keys(request_id, actor_id, action, result_ref, "
+            "created_at) VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(actor_id, request_id) DO NOTHING",
             (request_id, actor_id, action, result_ref, created_at),
         )
+        return result.rowcount == 1
 
 
 class LogRepository:
@@ -775,7 +818,9 @@ class LogRepository:
 
     def add(self, item: OperationLog) -> None:
         self.db.execute(
-            "INSERT INTO operation_logs(log_id, actor_id, ledger_id, object_type, object_id, action, before_json, after_json, result, failure_reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO operation_logs(log_id, actor_id, ledger_id, object_type, "
+            "object_id, action, before_json, after_json, result, failure_reason, "
+            "created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 item.log_id,
                 item.actor_id,

@@ -63,13 +63,17 @@ class RecordService:
     def _replay_record(self, actor_id: str, request_id: str) -> ExpenseRecord | None:
         key = self.request_keys.get(actor_id, request_id)
         if key and is_within_hours(key["created_at"]):
+            if key["action"] != "ADD_RECORD":
+                raise ConflictError("该请求编号已经用于其他操作")
             return self.records.get(key["result_ref"])
         return None
 
     def _validate_share_members(self, ledger_id: str, shares: dict[str, int]) -> None:
         if not shares:
             raise ValidationError("至少需要一个承担成员")
-        for member_id in shares:
+        for member_id, amount_cents in shares.items():
+            if amount_cents <= 0:
+                raise ValidationError("每名承担成员的金额必须大于 0")
             member = self.members.get(member_id)
             if (
                 member is None
@@ -109,6 +113,7 @@ class RecordService:
         self.ledger.require_permission(
             actor_id, ledger_id, Permission.BOOKKEEPING.value
         )
+        self.ledger.ensure_no_pending_settlement(ledger_id, "新增收支")
         normalized_type = self._normalize_type(record_type)
         try:
             amount_cents = parse_money(amount)
@@ -156,6 +161,10 @@ class RecordService:
             version=1,
         )
         with self.db.transaction():
+            if not self.request_keys.claim(
+                actor_id, normalized_request, "ADD_RECORD", record.record_id, now
+            ):
+                raise ConflictError("请求编号已处理，请刷新后查看原记录")
             self.records.create(record)
             for member_id, cents in share_items.items():
                 self.records.add_share(
@@ -168,9 +177,6 @@ class RecordService:
                 )
             for item in attachment_items:
                 self.records.add_attachment(record.record_id, item)
-            self.request_keys.upsert(
-                actor_id, normalized_request, "ADD_RECORD", record.record_id, now
-            )
             self.audit.record(
                 AuditEvent(
                     actor_id=actor_id,
@@ -236,6 +242,7 @@ class RecordService:
         if original is None:
             raise NotFoundError("记录不存在")
         self._require_self_or_admin(actor_id, original)
+        self.ledger.ensure_no_pending_settlement(original.ledger_id, "修改收支记录")
         if original.status not in {
             RecordStatus.PENDING.value,
             RecordStatus.REJECTED.value,
@@ -262,10 +269,20 @@ class RecordService:
                     raise ValidationError("类别不能为空")
                 update[key] = value.strip() if isinstance(value, str) else value
         final_amount = update.get("amount_cents", original.amount_cents)
+        if "amount_cents" in update and shares is None:
+            raise ValidationError("修改金额时必须同时重新提交承担明细")
         if shares is not None:
-            self._validate_share_members(original.ledger_id, shares)
-            if sum(shares.values()) != final_amount:
+            try:
+                normalized_shares = {
+                    member_id: int(amount_cents)
+                    for member_id, amount_cents in shares.items()
+                }
+            except (TypeError, ValueError) as exc:
+                raise ValidationError("承担金额必须是整数分") from exc
+            self._validate_share_members(original.ledger_id, normalized_shares)
+            if sum(normalized_shares.values()) != final_amount:
                 raise ValidationError("承担金额合计必须等于记录金额")
+            shares = normalized_shares
         update["status"] = RecordStatus.PENDING.value
         with self.db.transaction():
             affected = self.records.update(record_id, update, expected_version)
@@ -308,6 +325,7 @@ class RecordService:
         if record is None:
             raise NotFoundError("记录不存在")
         self._require_self_or_admin(actor_id, record)
+        self.ledger.ensure_no_pending_settlement(record.ledger_id, "撤回收支记录")
         if record.status != RecordStatus.PENDING.value:
             raise InvalidStateError("只有待审核记录可以撤回")
         with self.db.transaction():
@@ -343,9 +361,16 @@ class RecordService:
         record = self.records.get(record_id)
         if record is None:
             raise NotFoundError("记录不存在")
-        self.ledger.require_permission(
+        audit_member = self.ledger.require_permission(
             actor_id, record.ledger_id, Permission.AUDIT.value
         )
+        self.ledger.ensure_no_pending_settlement(record.ledger_id, "审核收支记录")
+        effective = self.ledger.member_permissions(actor_id, record.ledger_id)
+        if Permission.VIEW_ALL_RECORDS.value not in effective:
+            shares = self.records.shares(record.record_id)
+            own_share = any(item.member_id == audit_member.member_id for item in shares)
+            if record.submitter_id != actor_id and not own_share:
+                raise AuthorizationError("审核人没有该记录的查看权限")
         if record.submitter_id == actor_id:
             raise AuthorizationError("审核人不能审核自己提交的记录")
         if record.status != RecordStatus.PENDING.value:
@@ -397,6 +422,7 @@ class RecordService:
         if record is None:
             raise NotFoundError("记录不存在")
         self.ledger._require_admin(actor_id, record.ledger_id)
+        self.ledger.ensure_no_pending_settlement(record.ledger_id, "作废收支记录")
         if record.status != RecordStatus.APPROVED.value:
             raise InvalidStateError("只有已审核记录可以作废")
         with self.db.transaction():
@@ -437,8 +463,6 @@ class RecordService:
         self.ledger.require_permission(
             actor_id, original.ledger_id, Permission.BOOKKEEPING.value
         )
-        if original.status != RecordStatus.APPROVED.value:
-            raise InvalidStateError("只能对已审核记录发起更正")
         try:
             amount_cents = parse_money(amount)
             direction_value = self._normalize_direction(direction)
@@ -446,9 +470,16 @@ class RecordService:
             occurred = parse_datetime(occurred_at or utc_now_iso()).isoformat()
         except ValueError as exc:
             raise ValidationError(str(exc)) from exc
-        replay = self._replay_record(actor_id, request_value)
-        if replay:
-            raise ConflictError(f"请求编号已用于记录 {replay.record_id}")
+        key = self.request_keys.get(actor_id, request_value)
+        if key and is_within_hours(key["created_at"]):
+            if key["action"] == "ADD_CORRECTION":
+                existing = self.records.correction(key["result_ref"])
+                if existing:
+                    return existing
+            raise ConflictError("该请求编号已经处理")
+        self.ledger.ensure_no_pending_settlement(original.ledger_id, "新增更正记录")
+        if original.status != RecordStatus.APPROVED.value:
+            raise InvalidStateError("只能对已审核记录发起更正")
         now = utc_now_iso()
         item = CorrectionRecord(
             correction_id=new_id("cor"),
@@ -467,10 +498,11 @@ class RecordService:
             version=1,
         )
         with self.db.transaction():
-            self.records.create_correction(item)
-            self.request_keys.upsert(
+            if not self.request_keys.claim(
                 actor_id, request_value, "ADD_CORRECTION", item.correction_id, now
-            )
+            ):
+                raise ConflictError("请求编号已处理，请刷新后查看原更正记录")
+            self.records.create_correction(item)
             self.audit.record(
                 AuditEvent(
                     actor_id=actor_id,
@@ -498,6 +530,7 @@ class RecordService:
         if item is None:
             raise NotFoundError("更正记录不存在")
         self.ledger.require_permission(actor_id, item.ledger_id, Permission.AUDIT.value)
+        self.ledger.ensure_no_pending_settlement(item.ledger_id, "审核更正记录")
         if item.submitter_id == actor_id:
             raise AuthorizationError("审核人不能审核自己提交的更正记录")
         if item.status != RecordStatus.PENDING.value:
@@ -692,11 +725,13 @@ class RecordService:
                     signed_delta if view_all else sum(part for _, part in parts)
                 )
                 if scoped_delta:
-                    category_totals[original.category] += scoped_delta
                     if original.record_type == RecordType.EXPENSE.value:
+                        category_totals[original.category] += scoped_delta
                         total_expense += scoped_delta
                     else:
-                        total_income -= scoped_delta
+                        category_totals[original.category] -= scoped_delta
+                        total_income += scoped_delta
+                    type_totals[original.record_type] += scoped_delta
         budget_rows = []
         for budget in self.budgets.list_for_ledger(ledger_id):
             used = category_totals.get(budget.category, 0)

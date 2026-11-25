@@ -1,17 +1,26 @@
 test_amount_validation_and_share_total (test_services.LedgerServiceTest.test_amount_validation_and_share_total) ... ok
+test_auditor_without_record_scope_is_rejected (test_services.LedgerServiceTest.test_auditor_without_record_scope_is_rejected) ... ok
+test_cli_login_output_and_token_workflow (test_services.LedgerServiceTest.test_cli_login_output_and_token_workflow) ... ok
 test_correction_and_statistics (test_services.LedgerServiceTest.test_correction_and_statistics) ... ok
 test_default_member_permissions_and_invitation (test_services.LedgerServiceTest.test_default_member_permissions_and_invitation) ... ok
+test_duplicate_correction_request_returns_first_result (test_services.LedgerServiceTest.test_duplicate_correction_request_returns_first_result) ... ok
 test_duplicate_settlement_creation_conflicts (test_services.LedgerServiceTest.test_duplicate_settlement_creation_conflicts) ... ok
 test_idempotent_request_returns_same_record (test_services.LedgerServiceTest.test_idempotent_request_returns_same_record) ... ok
+test_income_correction_increase_and_decrease (test_services.LedgerServiceTest.test_income_correction_increase_and_decrease) ... ok
+test_left_member_can_be_reinvited_and_rejoin (test_services.LedgerServiceTest.test_left_member_can_be_reinvited_and_rejoin) ... ok
 test_login_and_invalid_password (test_services.LedgerServiceTest.test_login_and_invalid_password) ... ok
+test_modify_amount_requires_new_shares (test_services.LedgerServiceTest.test_modify_amount_requires_new_shares) ... ok
+test_negative_and_zero_shares_are_rejected (test_services.LedgerServiceTest.test_negative_and_zero_shares_are_rejected) ... ok
+test_pending_settlement_freezes_record_and_member_changes (test_services.LedgerServiceTest.test_pending_settlement_freezes_record_and_member_changes) ... ok
 test_permission_and_log_scope (test_services.LedgerServiceTest.test_permission_and_log_scope) ... ok
 test_platform_admin_can_change_account_status (test_services.LedgerServiceTest.test_platform_admin_can_change_account_status) ... ok
 test_revoke_settlement_keeps_snapshot (test_services.LedgerServiceTest.test_revoke_settlement_keeps_snapshot) ... ok
 test_self_audit_rejected_and_other_auditor_allowed (test_services.LedgerServiceTest.test_self_audit_rejected_and_other_auditor_allowed) ... ok
+test_session_token_authentication_and_logout (test_services.LedgerServiceTest.test_session_token_authentication_and_logout) ... ok
 test_settlement_snapshot_and_export (test_services.LedgerServiceTest.test_settlement_snapshot_and_export) ... ok
 test_suspicious_duplicate_requires_confirmation (test_services.LedgerServiceTest.test_suspicious_duplicate_requires_confirmation) ... ok
 
 ----------------------------------------------------------------------
-Ran 12 tests in 5.380s
+Ran 21 tests in 9.955s
 
 OK

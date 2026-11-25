@@ -27,6 +27,18 @@ CREATE TABLE IF NOT EXISTS platform_admins (
     granted_at TEXT NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(user_id)
 );
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    token_hash TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    revoked_at TEXT,
+    FOREIGN KEY (user_id) REFERENCES users(user_id)
+);
+CREATE INDEX IF NOT EXISTS ix_auth_session_user
+ON auth_sessions(user_id, expires_at);
+
 CREATE TABLE IF NOT EXISTS ledgers (
     ledger_id TEXT PRIMARY KEY,
     name TEXT NOT NULL,

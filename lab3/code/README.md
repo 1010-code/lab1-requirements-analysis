@@ -21,15 +21,17 @@ python main.py demo
 python main.py --db data/yitong.db init
 python main.py --db data/yitong.db register --account owner --name 韦依彤 --password Passw0rd!
 python main.py --db data/yitong.db login --account owner --password Passw0rd!
-python main.py --db data/yitong.db create-ledger --owner <用户ID> --name 旅行账本
-python main.py --db data/yitong.db invite --admin <用户ID> --ledger <账本ID> --account member
-python main.py --db data/yitong.db accept-invite --user <用户ID> --invitation <邀请ID>
-python main.py --db data/yitong.db add-record --user <用户ID> --ledger <账本ID> --type EXPENSE --amount 120.00 --category 餐饮 --payer <成员ID> --shares <成员ID>=60,<成员ID>=60 --request-id req-001
-python main.py --db data/yitong.db approve --user <审核人用户ID> --record <记录ID>
-python main.py --db data/yitong.db statistics --user <用户ID> --ledger <账本ID>
-python main.py --db data/yitong.db start-settlement --admin <用户ID> --ledger <账本ID>
-python main.py --db data/yitong.db confirm-settlement --user <用户ID> --settlement <结算ID>
-python main.py --db data/yitong.db logs --user <用户ID> --ledger <账本ID>
+# 上一条命令返回 token；把 token 放在子命令前，可代替 --user/--admin
+python main.py --db data/yitong.db --token <TOKEN> create-ledger --name 旅行账本
+python main.py --db data/yitong.db --token <TOKEN> logout
+python main.py --db data/yitong.db --token <TOKEN> invite --ledger <账本ID> --account member
+python main.py --db data/yitong.db --token <TOKEN> accept-invite --invitation <邀请ID>
+python main.py --db data/yitong.db --token <TOKEN> add-record --ledger <账本ID> --type EXPENSE --amount 120.00 --category 餐饮 --payer <成员ID> --shares <成员ID>=60,<成员ID>=60 --request-id req-001
+python main.py --db data/yitong.db --token <TOKEN> approve --record <记录ID>
+python main.py --db data/yitong.db --token <TOKEN> statistics --ledger <账本ID>
+python main.py --db data/yitong.db --token <TOKEN> start-settlement --ledger <账本ID>
+python main.py --db data/yitong.db --token <TOKEN> confirm-settlement --settlement <结算ID>
+python main.py --db data/yitong.db --token <TOKEN> logs --ledger <账本ID>
 ```
 
 ## 模块
